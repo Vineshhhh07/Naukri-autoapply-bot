@@ -1,17 +1,8 @@
 """
-Naukri Auto-Apply Bot - Microsoft Edge Version (Updated for Naukri.com 2026)
+Naukri Auto-Apply Bot - Microsoft Edge Version (Codespaces & Cloud Optimized)
 ================================================================================
 Automates job applications on Naukri.com using Selenium with Edge browser.
-Opens each job keyword search in a separate tab for faster collection.
-
-Usage:
-    1. Copy .env.example to .env and fill in your details
-    2. pip install -r requirements.txt
-    3. python Naukri-Edge.py
-
-Requirements:
-    - Edge browser installed
-    - Dependencies from requirements.txt
+Optimized for headless cloud environments and low-memory containers.
 """
 
 import os
@@ -40,13 +31,13 @@ except ImportError:
 # ------------------------------------------------------------
 load_dotenv()
 
-# --- Naukri Credentials ---
-NAUKRI_EMAIL = os.getenv('NAUKRI_EMAIL', '')
-NAUKRI_PASSWORD = os.getenv('NAUKRI_PASSWORD', '')
+# --- Naukri Credentials (supports both naming formats) ---
+NAUKRI_EMAIL = os.getenv('NAUKRI_EMAIL') or os.getenv('EMAIL', '')
+NAUKRI_PASSWORD = os.getenv('NAUKRI_PASSWORD') or os.getenv('PASSWORD', '')
 
 # --- Personal Details ---
-FIRSTNAME = os.getenv('FIRSTNAME', '')
-LASTNAME = os.getenv('LASTNAME', '')
+FIRSTNAME = os.getenv('FIRSTNAME') or os.getenv('FIRST_NAME', '')
+LASTNAME = os.getenv('LASTNAME') or os.getenv('LAST_NAME', '')
 
 # --- Job Search ---
 KEYWORDS = [kw.strip() for kw in os.getenv('KEYWORDS', '').split(',') if kw.strip()]
@@ -54,9 +45,9 @@ LOCATION = os.getenv('LOCATION', '').strip()
 
 # --- Limits ---
 MAX_APPLICATIONS = int(os.getenv('MAX_APPLICATIONS', '50'))
-PAGES_PER_KEYWORD = int(os.getenv('PAGES_PER_KEYWORD', '2'))
+PAGES_PER_KEYWORD = int(os.getenv('PAGES_PER_KEYWORD', '1'))
 
-# --- Edge Driver Path (optional, only if NOT using webdriver-manager) ---
+# --- Edge Driver Path (optional) ---
 EDGE_DRIVER_PATH = os.getenv('EDGE_DRIVER_PATH', '')
 
 # ------------------------------------------------------------
@@ -74,39 +65,43 @@ def validate_config():
     """Check that required configuration values are set."""
     errors = []
     if not NAUKRI_EMAIL:
-        errors.append("NAUKRI_EMAIL is not set in .env")
+        errors.append("Email is not set in .env (set NAUKRI_EMAIL or EMAIL)")
     if not NAUKRI_PASSWORD:
-        errors.append("NAUKRI_PASSWORD is not set in .env")
+        errors.append("Password is not set in .env (set NAUKRI_PASSWORD or PASSWORD)")
     if not KEYWORDS:
         errors.append("KEYWORDS is not set in .env (comma-separated job roles)")
     if not FIRSTNAME:
-        errors.append("FIRSTNAME is not set in .env")
+        errors.append("First name is not set in .env (set FIRSTNAME or FIRST_NAME)")
     if not LASTNAME:
-        errors.append("LASTNAME is not set in .env")
+        errors.append("Last name is not set in .env (set LASTNAME or LAST_NAME)")
     if errors:
         for e in errors:
             logger.error(e)
-        logger.error("Please copy .env.example to .env and fill in your details.")
         return False
     return True
 
 
 def create_edge_driver():
-    """Create and return an Edge WebDriver instance."""
+    """Create an Edge WebDriver instance optimized for cloud containers."""
     options = webdriver.EdgeOptions()
-    options.add_argument("--start-maximized")
-    options.add_argument("--disable-notifications")
-    # Uncomment the line below to run in headless mode (no visible browser)
-    # options.add_argument("--headless=new")
+    
+    # Critical flags to prevent memory crashes in Linux/Codespaces containers
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--disable-software-rasterizer')
+    options.add_argument('--disable-notifications')
+    options.add_argument('--disable-extensions')
+    options.add_argument('--window-size=1920,1080')
 
     if WEBDRIVER_MANAGER_AVAILABLE:
-        logger.info("Using webdriver-manager to auto-download EdgeDriver...")
+        logger.info("Using webdriver-manager to resolve EdgeDriver...")
         service = EdgeService(EdgeChromiumDriverManager().install())
     elif EDGE_DRIVER_PATH:
         logger.info(f"Using EdgeDriver at: {EDGE_DRIVER_PATH}")
         service = EdgeService(executable_path=EDGE_DRIVER_PATH)
     else:
-        logger.info("No driver path specified; assuming EdgeDriver is in PATH...")
+        logger.info("Using default system EdgeDriver...")
         service = EdgeService()
 
     driver = webdriver.Edge(service=service, options=options)
@@ -119,8 +114,7 @@ def login_naukri(driver):
     driver.get('https://login.naukri.com/')
     time.sleep(3)
 
-    # Wait for username field
-    WebDriverWait(driver, 10).until(
+    WebDriverWait(driver, 15).until(
         EC.presence_of_element_located((By.ID, 'usernameField'))
     )
 
@@ -131,17 +125,10 @@ def login_naukri(driver):
     passwd.send_keys(NAUKRI_PASSWORD)
     passwd.send_keys(Keys.ENTER)
 
-    # Wait for login to complete
     time.sleep(8)
-    logger.info("Login completed.")
-
-
+    logger.info("Login process completed.")
 def build_search_urls():
-    """
-    Build all search URLs for every keyword and page combination.
-    Naukri.com updated URL format: /{keyword}-jobs-in-{location}
-    Returns a list of (keyword, url) tuples.
-    """
+    """Build search URLs for keywords and page combinations."""
     urls = []
     for keyword in KEYWORDS:
         keyword_slug = keyword.lower().replace(' ', '-')
@@ -161,114 +148,44 @@ def build_search_urls():
     return urls
 
 
-def open_tabs_parallel(driver, search_urls):
+def collect_all_jobs_sequential(driver, search_urls):
     """
-    Open all search URLs in parallel browser tabs.
-    The first URL opens in the current tab; the rest open in new tabs.
-    Returns the original window handle.
-    """
-    original_window = driver.current_window_handle
-
-    if not search_urls:
-        return original_window
-
-    # Open first URL in current tab
-    keyword, first_url = search_urls[0]
-    logger.info(f"[Tab: Main] Opening: {first_url}")
-    driver.get(first_url)
-    time.sleep(3)
-
-    # Open remaining URLs in new tabs
-    for keyword, url in search_urls[1:]:
-        logger.info(f"[Tab: New] Opening: {url}")
-        driver.switch_to.new_window('tab')
-        driver.get(url)
-        time.sleep(2)
-
-    # Switch back to the original tab
-    driver.switch_to.window(original_window)
-    return original_window
-
-
-def collect_job_links_from_tab(driver, window_handle):
-    """
-    Switch to a specific tab, scrape job links from the page.
-    Uses updated Naukri.com selectors (as of 2026 redesign).
-
-    Current HTML structure for job cards:
-        <div class="srp-jobtuple-wrapper" data-job-id="...">
-          <div class="cust-job-tuple layout-wrapper lay-2 sjw__tuple">
-            <div class="row1">
-              <h2><a class="title " href="https://...">Job Title</a></h2>
-            </div>
-          </div>
-        </div>
-    """
-    links = []
-    try:
-        driver.switch_to.window(window_handle)
-        time.sleep(3)  # Wait for page to fully render
-
-        soup = BeautifulSoup(driver.page_source, 'html5lib')
-
-        # New selector: find all job tuple wrappers
-        job_wrappers = soup.find_all('div', class_='srp-jobtuple-wrapper')
-        logger.info(f"[Tab: {driver.title[:50]}] Found {len(job_wrappers)} job cards (srp-jobtuple-wrapper)")
-
-        if not job_wrappers:
-            # Fallback: try the older cust-job-tuple class
-            job_wrappers = soup.find_all('div', class_='cust-job-tuple')
-            logger.info(f"[Tab: {driver.title[:50]}] Found {len(job_wrappers)} job cards (cust-job-tuple fallback)")
-
-        for job_wrapper in job_wrappers:
-            # Find the title link - new selector is a.title (class="title ")
-            title_link = job_wrapper.find('a', class_='title')
-            if title_link and title_link.get('href'):
-                href = title_link.get('href')
-                # Ensure full URL
-                if href.startswith('/'):
-                    href = 'https://www.naukri.com' + href
-                links.append(href)
-
-    except WebDriverException as e:
-        logger.warning(f"[Tab] Error reading tab: {e}")
-
-    return links
-
-
-def collect_all_jobs_parallel(driver, search_urls):
-    """
-    Open all keyword search pages in parallel tabs and collect job links from each.
-    Returns a deduplicated list of job URLs.
+    Scrape job listings sequentially to maintain a low memory footprint.
     """
     logger.info("=" * 50)
-    logger.info(f"Opening {len(search_urls)} search pages in parallel tabs...")
+    logger.info(f"Scanning {len(search_urls)} search pages sequentially...")
     logger.info("=" * 50)
 
-    # Open all search URLs in parallel tabs
-    original_window = open_tabs_parallel(driver, search_urls)
-
-    # Collect job links from each tab
     all_links = []
-    window_handles = driver.window_handles
-    logger.info(f"Collecting job links from {len(window_handles)} tabs...")
 
-    for handle in window_handles:
-        tab_links = collect_job_links_from_tab(driver, handle)
-        all_links.extend(tab_links)
+    for idx, (keyword, url) in enumerate(search_urls, 1):
+        logger.info(f"[{idx}/{len(search_urls)}] Scanning: {url}")
+        try:
+            driver.get(url)
+            time.sleep(4)
 
-    # Close all extra tabs and return to main
-    logger.info("Closing search tabs...")
-    for handle in window_handles:
-        if handle != original_window:
-            try:
-                driver.switch_to.window(handle)
-                driver.close()
-            except WebDriverException:
-                pass
-    driver.switch_to.window(original_window)
+            soup = BeautifulSoup(driver.page_source, 'html5lib')
 
-    # Remove duplicates while preserving order
+            # Find job cards using primary and fallback selectors
+            job_wrappers = soup.find_all('div', class_='srp-jobtuple-wrapper')
+            if not job_wrappers:
+                job_wrappers = soup.find_all('div', class_='cust-job-tuple')
+
+            page_links = 0
+            for job_wrapper in job_wrappers:
+                title_link = job_wrapper.find('a', class_='title')
+                if title_link and title_link.get('href'):
+                    href = title_link.get('href')
+                    if href.startswith('/'):
+                        href = 'https://www.naukri.com' + href
+                    all_links.append(href)
+                    page_links += 1
+
+            logger.info(f" -> Found {page_links} job postings on this page.")
+        except WebDriverException as e:
+            logger.warning(f" -> Failed to load search page: {e}")
+
+    # Deduplicate job links
     seen = set()
     unique_links = []
     for link in all_links:
@@ -281,17 +198,9 @@ def collect_all_jobs_parallel(driver, search_urls):
 
 
 def click_apply_button(driver, link):
-    """
-    Try to click the Apply button on a job detail page.
-    Updated: Naukri.com now uses "Apply on company site" button text.
-
-    Returns True if applied successfully, False otherwise.
-    """
-    # First, wait for the page to load
+    """Attempt to click the Apply button on a job detail page."""
     time.sleep(4)
 
-    # Try to find and click the apply button (updated selector)
-    # New: button text is "Apply on company site", id="company-site-button"
     apply_selectors = [
         (By.XPATH, "//button[contains(text(),'Apply on company site')]"),
         (By.XPATH, "//button[contains(text(),'Apply')]"),
@@ -314,21 +223,18 @@ def click_apply_button(driver, link):
 
 
 def apply_to_jobs(driver, job_links):
-    """
-    Visit each job link and attempt to apply.
-    Returns (applied_count, failed_count, applied_list).
-    """
+    """Iterate through job links and attempt submission."""
     applied = 0
     failed = 0
     applied_list = {'passed': [], 'failed': []}
 
     logger.info("=" * 50)
-    logger.info(f"Starting job applications (max: {MAX_APPLICATIONS})...")
+    logger.info(f"Starting job applications (target max: {MAX_APPLICATIONS})...")
     logger.info("=" * 50)
 
     for i, link in enumerate(job_links, 1):
         if applied >= MAX_APPLICATIONS:
-            logger.info(f"Reached max application limit ({MAX_APPLICATIONS}). Stopping.")
+            logger.info(f"Reached application limit ({MAX_APPLICATIONS}). Stopping.")
             break
 
         logger.info(f"[{i}/{len(job_links)}] Visiting job: {link}")
@@ -340,7 +246,6 @@ def apply_to_jobs(driver, job_links):
             applied_list['failed'].append(link)
             continue
 
-        # --- Click the "Apply" button ---
         if click_apply_button(driver, link):
             applied += 1
             applied_list['passed'].append(link)
@@ -349,47 +254,36 @@ def apply_to_jobs(driver, job_links):
         else:
             failed += 1
             applied_list['failed'].append(link)
-            logger.warning(f"  ✗ No Apply button found. Fail count: {failed}")
+            logger.warning(f"  ✗ No direct apply button found.")
             continue
 
-        # --- Handle any additional fields (first/last name, submit) ---
-        # Note: These handlers remain from the original script but the new Naukri
-        # uses "Apply on company site" which typically redirects to an external site.
-        # If Naukri's inline application form appears, these will handle it.
+        # Check for quota expiration
         try:
-            # Check for daily quota expired
             quota_el = driver.find_element(By.XPATH, "//*[text()='Your daily quota has been expired.']")
             if quota_el:
-                logger.info("Daily quota expired. Stopping.")
+                logger.info("Daily application quota reached. Stopping.")
                 break
         except NoSuchElementException:
             pass
 
+        # Handle supplemental form inputs if present
         try:
-            # If first name field is present, fill it
-            driver.find_element(By.XPATH, "//input[@id='CUSTOM-FIRSTNAME']")
             firstname_el = driver.find_element(By.ID, 'CUSTOM-FIRSTNAME')
             firstname_el.clear()
             firstname_el.send_keys(FIRSTNAME)
-            logger.info("  Filled custom first name field")
         except NoSuchElementException:
             pass
 
         try:
-            # If last name field is present, fill it
-            driver.find_element(By.XPATH, "//input[@id='CUSTOM-LASTNAME']")
             lastname_el = driver.find_element(By.ID, 'CUSTOM-LASTNAME')
             lastname_el.clear()
             lastname_el.send_keys(LASTNAME)
-            logger.info("  Filled custom last name field")
         except NoSuchElementException:
             pass
 
         try:
-            # Click "Submit and Apply" if present
             submit_btn = driver.find_element(By.XPATH, "//*[text()='Submit and Apply']")
             submit_btn.click()
-            logger.info("  Clicked 'Submit and Apply'")
             time.sleep(2)
         except NoSuchElementException:
             pass
@@ -398,7 +292,7 @@ def apply_to_jobs(driver, job_links):
 
 
 def save_results(applied_list):
-    """Save applied/failed links to CSV."""
+    """Save applied and failed URLs to CSV."""
     csv_file = "naukriapplied.csv"
     final_dict = {k: pd.Series(v) for k, v in applied_list.items()}
     df = pd.DataFrame.from_dict(final_dict)
@@ -407,9 +301,8 @@ def save_results(applied_list):
 
 
 def main():
-    """Main entry point for the bot."""
     logger.info("=" * 50)
-    logger.info("Naukri Auto-Apply Bot (Edge Edition - 2026 Update)")
+    logger.info("Naukri Auto-Apply Bot (Edge Cloud Edition)")
     logger.info("=" * 50)
 
     if not validate_config():
@@ -418,49 +311,40 @@ def main():
     logger.info(f"Keywords: {KEYWORDS}")
     logger.info(f"Location: {LOCATION or 'Anywhere'}")
     logger.info(f"Max applications: {MAX_APPLICATIONS}")
-    logger.info(f"Pages per keyword: {PAGES_PER_KEYWORD}")
 
     driver = None
     try:
-        # Initialize browser
         driver = create_edge_driver()
-
-        # Login
         login_naukri(driver)
 
-        # Build all search URLs
         search_urls = build_search_urls()
-        logger.info(f"Total search pages to open: {len(search_urls)}")
+        logger.info(f"Total search queries prepared: {len(search_urls)}")
 
-        # Collect all job links in parallel (multi-tab)
-        job_links = collect_all_jobs_parallel(driver, search_urls)
+        # Collect jobs sequentially to prevent memory crashes
+        job_links = collect_all_jobs_sequential(driver, search_urls)
 
         if not job_links:
-            logger.warning("No job links found. Check your keywords and location.")
+            logger.warning("No job links found. Verify search keywords and location settings.")
             return
 
-        # Apply to jobs
         applied, failed, applied_list = apply_to_jobs(driver, job_links)
-
-        # Save results
         save_results(applied_list)
 
-        # Summary
         logger.info("=" * 50)
         logger.info("APPLICATION SUMMARY")
         logger.info(f"  Successfully applied: {applied}")
-        logger.info(f"  Failed/Skipped:      {failed}")
-        logger.info(f"  Total processed:     {applied + failed}")
-        logger.info(f"  Results saved to:    naukriapplied.csv")
+        logger.info(f"  Failed/Skipped:       {failed}")
+        logger.info(f"  Total processed:      {applied + failed}")
+        logger.info(f"  Results saved to:     naukriapplied.csv")
         logger.info("=" * 50)
 
     except Exception as e:
-        logger.exception(f"An unexpected error occurred: {e}")
+        logger.exception(f"An error occurred during execution: {e}")
     finally:
         if driver:
             try:
                 driver.quit()
-                logger.info("Browser closed.")
+                logger.info("Browser session closed cleanly.")
             except Exception:
                 pass
 

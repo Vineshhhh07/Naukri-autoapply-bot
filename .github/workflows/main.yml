@@ -1,0 +1,44 @@
+name: Daily Naukri Auto-Apply
+
+# Runs every day at 03:30 UTC (9:00 AM IST)
+on:
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch: # Adds a manual "Run workflow" button just in case
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Microsoft Edge & Virtual Screen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo tee /usr/share/keyrings/microsoft-edge.gpg > /dev/null
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-edge.gpg] https://packages.microsoft.com/repos/edge stable main" | sudo tee /etc/apt/sources.list.d/microsoft-edge.list
+          sudo apt-get update
+          sudo apt-get install -y microsoft-edge-stable
+
+      - name: Run the Bot
+        env:
+          NAUKRI_EMAIL: ${{ secrets.NAUKRI_EMAIL }}
+          NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
+          FIRSTNAME: "Vinesh"
+          LASTNAME: "Tiwari"
+          KEYWORDS: "QA Engineer, Software Quality Assurance, Manual Testing, Backend Validation"
+          LOCATION: "Delhi"
+          MAX_APPLICATIONS: "50"
+          PAGES_PER_KEYWORD: "1"
+        run: |
+          xvfb-run python Naukri-Edge.py

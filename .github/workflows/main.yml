@@ -34,9 +34,7 @@ jobs:
         with:
           username: ${{ secrets.NAUKRI_EMAIL }}
           password: ${{ secrets.NAUKRI_PASSWORD }}
-          profile_id: ${{ secrets.NAUKRI_PROFILE_ID }}
-          profile_summary: "Software Quality Assurance Engineer with 4.5 years of experience in manual testing and backend validation across diverse environments. Currently verifying the Apps section of the Creative Cloud Desktop application."
-
+          resume_path: "Resume.pdf"
       - name: Run the Bot
         env:
           NAUKRI_EMAIL: ${{ secrets.NAUKRI_EMAIL }}

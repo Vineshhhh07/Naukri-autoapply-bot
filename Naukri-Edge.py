@@ -130,7 +130,7 @@ def login_naukri(driver):
     logger.info("Login process completed.")
 
 
-def update_profile(driver, resume_filename="Vinesh_Resume.pdf"):
+def update_profile(driver, resume_filename="Resume.pdf"):
     """Navigate to Naukri profile and re-upload the resume to trigger a profile refresh."""
     logger.info("=" * 50)
     logger.info("Starting Profile Refresh...")
@@ -370,7 +370,7 @@ def main():
         login_naukri(driver)
 
         # 2. Refresh Profile (ensure the filename matches what you uploaded to GitHub)
-        update_profile(driver, "Vinesh_Resume.pdf")
+        update_profile(driver, "Resume.pdf")
 
         # 3. Build search URLs and scan for jobs
         search_urls = build_search_urls()

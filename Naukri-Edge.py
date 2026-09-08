@@ -3,6 +3,7 @@ Naukri Auto-Apply Bot - Microsoft Edge Version (Codespaces & Cloud Optimized)
 ================================================================================
 Automates job applications on Naukri.com using Selenium with Edge browser.
 Optimized for headless cloud environments and low-memory containers.
+Includes built-in Profile Refresh (Resume Re-upload).
 """
 
 import os
@@ -39,8 +40,8 @@ NAUKRI_PASSWORD = os.getenv('NAUKRI_PASSWORD') or os.getenv('PASSWORD', '')
 FIRSTNAME = os.getenv('FIRSTNAME') or os.getenv('FIRST_NAME', '')
 LASTNAME = os.getenv('LASTNAME') or os.getenv('LAST_NAME', '')
 
-# --- Job Search ---
-KEYWORDS = [kw.strip() for kw in os.getenv('KEYWORDS', '').split(',') if kw.strip()]
+# --- Job Search (Expanded Keywords) ---
+KEYWORDS = [kw.strip() for kw in os.getenv('KEYWORDS', 'QA Engineer, Quality Assurance, Software Tester, Manual Testing, Automation Testing, Test Engineer, QA Analyst').split(',') if kw.strip()]
 LOCATION = os.getenv('LOCATION', '').strip()
 
 # --- Limits ---
@@ -127,6 +128,55 @@ def login_naukri(driver):
 
     time.sleep(8)
     logger.info("Login process completed.")
+
+
+def update_profile(driver, resume_filename="Vinesh_Resume.pdf"):
+    """Navigate to Naukri profile and re-upload the resume to trigger a profile refresh."""
+    logger.info("=" * 50)
+    logger.info("Starting Profile Refresh...")
+    logger.info("=" * 50)
+    try:
+        # Navigate to profile page
+        driver.get("https://www.naukri.com/mnjuser/profile")
+        time.sleep(6) # Wait for the page to fully render
+
+        # Resolve the absolute path of the uploaded resume
+        resume_path = os.path.abspath(resume_filename)
+        if not os.path.exists(resume_path):
+            logger.warning(f"Resume file not found at {resume_path}. Please check the filename in GitHub!")
+            return False
+
+        # Find the hidden file input used for uploading resumes on Naukri
+        file_input = None
+        selectors = ["input[type='file']", "#attachCV", "#lazyAttachCV"]
+        for selector in selectors:
+            try:
+                file_input = WebDriverWait(driver, 3).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+                )
+                if file_input:
+                    break
+            except TimeoutException:
+                continue
+                
+        if not file_input:
+            logger.warning("Could not find the resume upload button on the profile page.")
+            return False
+
+        # Send the file path directly to the browser input
+        logger.info(f"Uploading {resume_filename} to refresh profile...")
+        file_input.send_keys(resume_path)
+        
+        # Wait a few seconds for Naukri to process the upload
+        time.sleep(5)
+        logger.info("✓ Profile successfully refreshed and highlighted!")
+        return True
+
+    except Exception as e:
+        logger.error(f"✗ Failed to update profile: {e}")
+        return False
+
+
 def build_search_urls():
     """Build search URLs for keywords and page combinations."""
     urls = []
@@ -302,7 +352,7 @@ def save_results(applied_list):
 
 def main():
     logger.info("=" * 50)
-    logger.info("Naukri Auto-Apply Bot (Edge Cloud Edition)")
+    logger.info("Naukri Auto-Apply Bot (Edge Cloud Edition with Profile Refresh)")
     logger.info("=" * 50)
 
     if not validate_config():
@@ -315,19 +365,27 @@ def main():
     driver = None
     try:
         driver = create_edge_driver()
+        
+        # 1. Login
         login_naukri(driver)
 
+        # 2. Refresh Profile (ensure the filename matches what you uploaded to GitHub)
+        update_profile(driver, "Vinesh_Resume.pdf")
+
+        # 3. Build search URLs and scan for jobs
         search_urls = build_search_urls()
         logger.info(f"Total search queries prepared: {len(search_urls)}")
 
-        # Collect jobs sequentially to prevent memory crashes
         job_links = collect_all_jobs_sequential(driver, search_urls)
 
         if not job_links:
             logger.warning("No job links found. Verify search keywords and location settings.")
             return
 
+        # 4. Apply to jobs
         applied, failed, applied_list = apply_to_jobs(driver, job_links)
+        
+        # 5. Save results
         save_results(applied_list)
 
         logger.info("=" * 50)

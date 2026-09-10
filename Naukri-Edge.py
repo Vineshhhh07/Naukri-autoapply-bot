@@ -86,6 +86,10 @@ def create_edge_driver():
     """Create an Edge WebDriver instance optimized for cloud containers."""
     options = webdriver.EdgeOptions()
     
+    # --- ANTI-HANG FIX 1: Eager Page Load Strategy ---
+    # Forces browser to stop waiting for heavy background scripts or infinite bot-checks
+    options.page_load_strategy = 'eager'
+    
     # Critical flags to prevent memory crashes in Linux/Codespaces containers
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
@@ -106,13 +110,24 @@ def create_edge_driver():
         service = EdgeService()
 
     driver = webdriver.Edge(service=service, options=options)
+    
+    # --- ANTI-HANG FIX 2: Strict 20-Second Timeout ---
+    driver.set_page_load_timeout(20)
+    
     return driver
 
 
 def login_naukri(driver):
     """Log in to Naukri.com."""
     logger.info("Logging in to Naukri.com...")
-    driver.get('https://login.naukri.com/')
+    
+    # --- ANTI-HANG FIX 3: Try/Except around login ---
+    try:
+        driver.get('https://login.naukri.com/')
+    except TimeoutException:
+        logger.warning("Login page load timed out, but proceeding to look for login fields anyway...")
+        pass
+
     time.sleep(3)
 
     WebDriverWait(driver, 15).until(
@@ -136,8 +151,13 @@ def update_profile(driver, resume_filename="Resume.pdf"):
     logger.info("Starting Profile Refresh...")
     logger.info("=" * 50)
     try:
-        # Navigate to profile page
-        driver.get("https://www.naukri.com/mnjuser/profile")
+        # --- ANTI-HANG FIX 4: Try/Except around profile navigation ---
+        try:
+            driver.get("https://www.naukri.com/mnjuser/profile")
+        except TimeoutException:
+            logger.warning("Profile page load timed out, but proceeding...")
+            pass
+            
         time.sleep(6) # Wait for the page to fully render
 
         # Resolve the absolute path of the uploaded resume
@@ -211,7 +231,13 @@ def collect_all_jobs_sequential(driver, search_urls):
     for idx, (keyword, url) in enumerate(search_urls, 1):
         logger.info(f"[{idx}/{len(search_urls)}] Scanning: {url}")
         try:
-            driver.get(url)
+            # --- ANTI-HANG FIX 5: Timeout safety on search pages ---
+            try:
+                driver.get(url)
+            except TimeoutException:
+                logger.warning(f" -> Search page load timed out, attempting to scrape loaded DOM anyway...")
+                pass
+                
             time.sleep(4)
 
             soup = BeautifulSoup(driver.page_source, 'html5lib')
@@ -289,7 +315,12 @@ def apply_to_jobs(driver, job_links):
 
         logger.info(f"[{i}/{len(job_links)}] Visiting job: {link}")
         try:
-            driver.get(link)
+            # --- ANTI-HANG FIX 6: Timeout safety on job application pages ---
+            try:
+                driver.get(link)
+            except TimeoutException:
+                logger.warning(f"  ! Job page timed out, attempting to click apply anyway...")
+                pass
         except WebDriverException as e:
             logger.warning(f"  ✗ Failed to load page: {e}")
             failed += 1

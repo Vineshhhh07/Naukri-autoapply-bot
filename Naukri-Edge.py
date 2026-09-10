@@ -201,7 +201,10 @@ def build_search_urls():
     """Build search URLs for keywords and page combinations."""
     urls = []
     for keyword in KEYWORDS:
-        keyword_slug = keyword.lower().replace(' ', '-')
+        # URL FIX: Properly clean the keyword (removes commas, handles extra spaces)
+        clean_kw = keyword.lower().replace(',', ' ').split()
+        keyword_slug = '-'.join(clean_kw)
+        
         for page_num in range(1, PAGES_PER_KEYWORD + 1):
             if not LOCATION:
                 if page_num == 1:
@@ -209,7 +212,10 @@ def build_search_urls():
                 else:
                     url = f"https://www.naukri.com/{keyword_slug}-jobs-{page_num}"
             else:
-                location_slug = LOCATION.lower().replace(' ', '-')
+                # URL FIX: Properly clean the location (removes commas, handles extra spaces)
+                clean_loc = LOCATION.lower().replace(',', ' ').split()
+                location_slug = '-'.join(clean_loc)
+                
                 if page_num == 1:
                     url = f"https://www.naukri.com/{keyword_slug}-jobs-in-{location_slug}"
                 else:

@@ -98,6 +98,10 @@ def create_edge_driver():
     options.add_argument('--disable-notifications')
     options.add_argument('--disable-extensions')
     options.add_argument('--window-size=1920,1080')
+    
+    # --- ANTI-BOT FIX 7: Disable HTTP/2 ---
+    # Forces the browser to use HTTP/1.1, bypassing Naukri's automated HTTP/2 protocol rejection
+    options.add_argument('--disable-http2')
 
     if WEBDRIVER_MANAGER_AVAILABLE:
         logger.info("Using webdriver-manager to resolve EdgeDriver...")

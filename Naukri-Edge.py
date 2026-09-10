@@ -87,7 +87,6 @@ def create_edge_driver():
     options = webdriver.EdgeOptions()
     
     # --- ANTI-HANG FIX 1: Eager Page Load Strategy ---
-    # Forces browser to stop waiting for heavy background scripts or infinite bot-checks
     options.page_load_strategy = 'eager'
     
     # Critical flags to prevent memory crashes in Linux/Codespaces containers
@@ -100,7 +99,6 @@ def create_edge_driver():
     options.add_argument('--window-size=1920,1080')
     
     # --- ANTI-BOT FIX 7: Disable HTTP/2 ---
-    # Forces the browser to use HTTP/1.1, bypassing Naukri's automated HTTP/2 protocol rejection
     options.add_argument('--disable-http2')
 
     if WEBDRIVER_MANAGER_AVAILABLE:
@@ -202,29 +200,36 @@ def update_profile(driver, resume_filename="Resume.pdf"):
 
 
 def build_search_urls():
-    """Build search URLs for keywords and page combinations."""
+    """Build search URLs for keywords, locations, and page combinations."""
     urls = []
+    
+    # MULTIPLE CITIES FIX: Split the string "Delhi, NCR, Noida" into an actual list ['delhi', 'ncr', 'noida']
+    location_list = [loc.strip() for loc in LOCATION.split(',')] if LOCATION else ['']
+
     for keyword in KEYWORDS:
-        # URL FIX: Properly clean the keyword (removes commas, handles extra spaces)
+        # Clean keyword (e.g., "QA Engineer" -> "qa-engineer")
         clean_kw = keyword.lower().replace(',', ' ').split()
         keyword_slug = '-'.join(clean_kw)
         
-        for page_num in range(1, PAGES_PER_KEYWORD + 1):
-            if not LOCATION:
-                if page_num == 1:
-                    url = f"https://www.naukri.com/{keyword_slug}-jobs"
+        for loc in location_list:
+            for page_num in range(1, PAGES_PER_KEYWORD + 1):
+                if not loc:
+                    # No location specified
+                    if page_num == 1:
+                        url = f"https://www.naukri.com/{keyword_slug}-jobs"
+                    else:
+                        url = f"https://www.naukri.com/{keyword_slug}-jobs-{page_num}"
                 else:
-                    url = f"https://www.naukri.com/{keyword_slug}-jobs-{page_num}"
-            else:
-                # URL FIX: Properly clean the location (removes commas, handles extra spaces)
-                clean_loc = LOCATION.lower().replace(',', ' ').split()
-                location_slug = '-'.join(clean_loc)
-                
-                if page_num == 1:
-                    url = f"https://www.naukri.com/{keyword_slug}-jobs-in-{location_slug}"
-                else:
-                    url = f"https://www.naukri.com/{keyword_slug}-jobs-in-{location_slug}-{page_num}"
-            urls.append((keyword, url))
+                    # Clean individual location (e.g., "New Delhi" -> "new-delhi")
+                    clean_loc = loc.lower().split()
+                    location_slug = '-'.join(clean_loc)
+                    
+                    if page_num == 1:
+                        url = f"https://www.naukri.com/{keyword_slug}-jobs-in-{location_slug}"
+                    else:
+                        url = f"https://www.naukri.com/{keyword_slug}-jobs-in-{location_slug}-{page_num}"
+                        
+                urls.append((f"{keyword} in {loc or 'Anywhere'}", url))
     return urls
 
 
@@ -238,7 +243,7 @@ def collect_all_jobs_sequential(driver, search_urls):
 
     all_links = []
 
-    for idx, (keyword, url) in enumerate(search_urls, 1):
+    for idx, (keyword_info, url) in enumerate(search_urls, 1):
         logger.info(f"[{idx}/{len(search_urls)}] Scanning: {url}")
         try:
             # --- ANTI-HANG FIX 5: Timeout safety on search pages ---
@@ -249,7 +254,6 @@ def collect_all_jobs_sequential(driver, search_urls):
                 pass
                 
             # --- SMART WAIT FIX ---
-            # Wait explicitly for Naukri's React JS to render the job cards using the new 2026 layout classes!
             try:
                 # Waits up to 15 seconds for AT LEAST ONE job card to appear in the DOM
                 WebDriverWait(driver, 15).until(
@@ -258,24 +262,22 @@ def collect_all_jobs_sequential(driver, search_urls):
             except TimeoutException:
                 logger.warning(" -> WARNING: No job cards appeared after 15 seconds.")
                 logger.warning(" -> Naukri might be showing a Bot Captcha, or the search returned 0 results.")
-                # VISUAL DEBUGGER: Takes a picture of the invisible browser so you can see what is blocking you!
-                screenshot_name = f"error_screenshot_page_{idx}.png"
-                driver.save_screenshot(screenshot_name)
-                logger.warning(f" -> Saved screenshot to {screenshot_name} to see what went wrong.")
+                
+                # We only take a screenshot if it's the very first page to save space
+                if idx == 1:
+                    screenshot_name = f"error_screenshot_page_{idx}.png"
+                    driver.save_screenshot(screenshot_name)
+                    logger.warning(f" -> Saved screenshot to {screenshot_name} to see what went wrong.")
 
             soup = BeautifulSoup(driver.page_source, 'html5lib')
 
             # --- 2026 NAUKRI DOM FIX ---
-            # Naukri removed the old 'srp-jobtuple-wrapper' classes. 
-            # The new layout wraps job cards in a generic React 'article' tag or an updated 'div'.
             job_wrappers = soup.find_all('article', class_='jobTuple')
             if not job_wrappers:
-                # Fallback for alternative A/B test layout
                 job_wrappers = soup.find_all('div', class_=lambda x: x and 'jobTuple' in x)
 
             page_links = 0
             for job_wrapper in job_wrappers:
-                # The title link is now usually inside an h2 tag with the class 'title'
                 title_link = job_wrapper.find('a', class_=lambda x: x and 'title' in x)
                 if title_link and title_link.get('href'):
                     href = title_link.get('href')

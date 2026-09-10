@@ -35,7 +35,7 @@ jobs:
           NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
           FIRSTNAME: "Vinesh"
           LASTNAME: "Tiwari"
-          KEYWORDS: "QA Engineer, Software Quality Assurance, Manual Testing, Backend Validation"
+          KEYWORDS: "QA Engineer, Software Tester, Test Engineer, Automation Tester, QA Analyst, Selenium Tester, API Tester, SDET"
           LOCATION: "Delhi"
           MAX_APPLICATIONS: "50"
           PAGES_PER_KEYWORD: "1"

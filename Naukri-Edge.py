@@ -3,7 +3,7 @@ Naukri Auto-Apply Bot - Microsoft Edge Version (Codespaces & Cloud Optimized)
 ================================================================================
 Automates job applications on Naukri.com using Selenium with Edge browser.
 Optimized for headless cloud environments and low-memory containers.
-Includes built-in Profile Refresh (Resume Re-upload).
+Includes built-in Profile Refresh (Resume Re-upload) and Anti-Hang Protections.
 """
 
 import os
@@ -238,7 +238,20 @@ def collect_all_jobs_sequential(driver, search_urls):
                 logger.warning(f" -> Search page load timed out, attempting to scrape loaded DOM anyway...")
                 pass
                 
-            time.sleep(4)
+            # --- SMART WAIT FIX ---
+            # Wait explicitly for Naukri's React JS to render the job cards!
+            try:
+                # Waits up to 15 seconds for AT LEAST ONE job card to appear in the DOM
+                WebDriverWait(driver, 15).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.srp-jobtuple-wrapper, div.cust-job-tuple"))
+                )
+            except TimeoutException:
+                logger.warning(" -> WARNING: No job cards appeared after 15 seconds.")
+                logger.warning(" -> Naukri might be showing a Bot Captcha, or the search returned 0 results.")
+                # VISUAL DEBUGGER: Takes a picture of the invisible browser so you can see what is blocking you!
+                screenshot_name = f"error_screenshot_page_{idx}.png"
+                driver.save_screenshot(screenshot_name)
+                logger.warning(f" -> Saved screenshot to {screenshot_name} to see what went wrong.")
 
             soup = BeautifulSoup(driver.page_source, 'html5lib')
 

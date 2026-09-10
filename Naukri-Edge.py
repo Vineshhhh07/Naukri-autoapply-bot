@@ -239,11 +239,11 @@ def collect_all_jobs_sequential(driver, search_urls):
                 pass
                 
             # --- SMART WAIT FIX ---
-            # Wait explicitly for Naukri's React JS to render the job cards!
+            # Wait explicitly for Naukri's React JS to render the job cards using the new 2026 layout classes!
             try:
                 # Waits up to 15 seconds for AT LEAST ONE job card to appear in the DOM
                 WebDriverWait(driver, 15).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.srp-jobtuple-wrapper, div.cust-job-tuple"))
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "article.jobTuple, div[class*='jobTuple']"))
                 )
             except TimeoutException:
                 logger.warning(" -> WARNING: No job cards appeared after 15 seconds.")
@@ -255,14 +255,18 @@ def collect_all_jobs_sequential(driver, search_urls):
 
             soup = BeautifulSoup(driver.page_source, 'html5lib')
 
-            # Find job cards using primary and fallback selectors
-            job_wrappers = soup.find_all('div', class_='srp-jobtuple-wrapper')
+            # --- 2026 NAUKRI DOM FIX ---
+            # Naukri removed the old 'srp-jobtuple-wrapper' classes. 
+            # The new layout wraps job cards in a generic React 'article' tag or an updated 'div'.
+            job_wrappers = soup.find_all('article', class_='jobTuple')
             if not job_wrappers:
-                job_wrappers = soup.find_all('div', class_='cust-job-tuple')
+                # Fallback for alternative A/B test layout
+                job_wrappers = soup.find_all('div', class_=lambda x: x and 'jobTuple' in x)
 
             page_links = 0
             for job_wrapper in job_wrappers:
-                title_link = job_wrapper.find('a', class_='title')
+                # The title link is now usually inside an h2 tag with the class 'title'
+                title_link = job_wrapper.find('a', class_=lambda x: x and 'title' in x)
                 if title_link and title_link.get('href'):
                     href = title_link.get('href')
                     if href.startswith('/'):

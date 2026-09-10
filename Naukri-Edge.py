@@ -98,8 +98,11 @@ def create_edge_driver():
     options.add_argument('--disable-extensions')
     options.add_argument('--window-size=1920,1080')
     
-    # --- ANTI-BOT FIX 7: Disable HTTP/2 ---
+    # --- ANTI-BOT FIX: Disable HTTP/2 ---
     options.add_argument('--disable-http2')
+    
+    # --- ANTI-BOT FIX: Stealth User-Agent ---
+    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0')
 
     if WEBDRIVER_MANAGER_AVAILABLE:
         logger.info("Using webdriver-manager to resolve EdgeDriver...")
@@ -123,25 +126,39 @@ def login_naukri(driver):
     """Log in to Naukri.com."""
     logger.info("Logging in to Naukri.com...")
     
-    # --- ANTI-HANG FIX 3: Try/Except around login ---
+    # Correct modern login URL
     try:
-        driver.get('https://login.naukri.com/')
+        driver.get('https://www.naukri.com/nlogin/login')
     except TimeoutException:
         logger.warning("Login page load timed out, but proceeding to look for login fields anyway...")
         pass
 
-    time.sleep(3)
+    time.sleep(4)
 
-    WebDriverWait(driver, 15).until(
-        EC.presence_of_element_located((By.ID, 'usernameField'))
-    )
+    # Multi-layout selector check for username and password fields
+    try:
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.ID, 'usernameField'))
+        )
+        uname = driver.find_element(By.ID, 'usernameField')
+        passwd = driver.find_element(By.ID, 'passwordField')
+    except TimeoutException:
+        logger.warning("Could not find 'usernameField', trying alternative layout 'emailTxt'...")
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.ID, 'emailTxt'))
+        )
+        uname = driver.find_element(By.ID, 'emailTxt')
+        passwd = driver.find_element(By.ID, 'pwd1')
 
-    uname = driver.find_element(By.ID, 'usernameField')
     uname.send_keys(NAUKRI_EMAIL)
-
-    passwd = driver.find_element(By.ID, 'passwordField')
     passwd.send_keys(NAUKRI_PASSWORD)
-    passwd.send_keys(Keys.ENTER)
+
+    # Submit action with fallback
+    try:
+        login_btn = driver.find_element(By.XPATH, "//button[@type='submit']")
+        login_btn.click()
+    except NoSuchElementException:
+        passwd.send_keys(Keys.ENTER)
 
     time.sleep(8)
     logger.info("Login process completed.")
@@ -153,22 +170,19 @@ def update_profile(driver, resume_filename="Resume.pdf"):
     logger.info("Starting Profile Refresh...")
     logger.info("=" * 50)
     try:
-        # --- ANTI-HANG FIX 4: Try/Except around profile navigation ---
         try:
             driver.get("https://www.naukri.com/mnjuser/profile")
         except TimeoutException:
             logger.warning("Profile page load timed out, but proceeding...")
             pass
             
-        time.sleep(6) # Wait for the page to fully render
+        time.sleep(6)
 
-        # Resolve the absolute path of the uploaded resume
         resume_path = os.path.abspath(resume_filename)
         if not os.path.exists(resume_path):
             logger.warning(f"Resume file not found at {resume_path}. Please check the filename in GitHub!")
             return False
 
-        # Find the hidden file input used for uploading resumes on Naukri
         file_input = None
         selectors = ["input[type='file']", "#attachCV", "#lazyAttachCV"]
         for selector in selectors:
@@ -185,11 +199,9 @@ def update_profile(driver, resume_filename="Resume.pdf"):
             logger.warning("Could not find the resume upload button on the profile page.")
             return False
 
-        # Send the file path directly to the browser input
         logger.info(f"Uploading {resume_filename} to refresh profile...")
         file_input.send_keys(resume_path)
         
-        # Wait a few seconds for Naukri to process the upload
         time.sleep(5)
         logger.info("✓ Profile successfully refreshed and highlighted!")
         return True
@@ -203,24 +215,21 @@ def build_search_urls():
     """Build search URLs for keywords, locations, and page combinations."""
     urls = []
     
-    # MULTIPLE CITIES FIX: Split the string "Delhi, NCR, Noida" into an actual list ['delhi', 'ncr', 'noida']
+    # Split comma-separated locations into distinct cities
     location_list = [loc.strip() for loc in LOCATION.split(',')] if LOCATION else ['']
 
     for keyword in KEYWORDS:
-        # Clean keyword (e.g., "QA Engineer" -> "qa-engineer")
         clean_kw = keyword.lower().replace(',', ' ').split()
         keyword_slug = '-'.join(clean_kw)
         
         for loc in location_list:
             for page_num in range(1, PAGES_PER_KEYWORD + 1):
                 if not loc:
-                    # No location specified
                     if page_num == 1:
                         url = f"https://www.naukri.com/{keyword_slug}-jobs"
                     else:
                         url = f"https://www.naukri.com/{keyword_slug}-jobs-{page_num}"
                 else:
-                    # Clean individual location (e.g., "New Delhi" -> "new-delhi")
                     clean_loc = loc.lower().split()
                     location_slug = '-'.join(clean_loc)
                     
@@ -246,16 +255,13 @@ def collect_all_jobs_sequential(driver, search_urls):
     for idx, (keyword_info, url) in enumerate(search_urls, 1):
         logger.info(f"[{idx}/{len(search_urls)}] Scanning: {url}")
         try:
-            # --- ANTI-HANG FIX 5: Timeout safety on search pages ---
             try:
                 driver.get(url)
             except TimeoutException:
-                logger.warning(f" -> Search page load timed out, attempting to scrape loaded DOM anyway...")
+                logger.warning(" -> Search page load timed out, attempting to scrape loaded DOM anyway...")
                 pass
                 
-            # --- SMART WAIT FIX ---
             try:
-                # Waits up to 15 seconds for AT LEAST ONE job card to appear in the DOM
                 WebDriverWait(driver, 15).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, "article.jobTuple, div[class*='jobTuple']"))
                 )
@@ -263,7 +269,6 @@ def collect_all_jobs_sequential(driver, search_urls):
                 logger.warning(" -> WARNING: No job cards appeared after 15 seconds.")
                 logger.warning(" -> Naukri might be showing a Bot Captcha, or the search returned 0 results.")
                 
-                # We only take a screenshot if it's the very first page to save space
                 if idx == 1:
                     screenshot_name = f"error_screenshot_page_{idx}.png"
                     driver.save_screenshot(screenshot_name)
@@ -271,7 +276,7 @@ def collect_all_jobs_sequential(driver, search_urls):
 
             soup = BeautifulSoup(driver.page_source, 'html5lib')
 
-            # --- 2026 NAUKRI DOM FIX ---
+            # Look for modern job card wrappers
             job_wrappers = soup.find_all('article', class_='jobTuple')
             if not job_wrappers:
                 job_wrappers = soup.find_all('div', class_=lambda x: x and 'jobTuple' in x)
@@ -344,11 +349,10 @@ def apply_to_jobs(driver, job_links):
 
         logger.info(f"[{i}/{len(job_links)}] Visiting job: {link}")
         try:
-            # --- ANTI-HANG FIX 6: Timeout safety on job application pages ---
             try:
                 driver.get(link)
             except TimeoutException:
-                logger.warning(f"  ! Job page timed out, attempting to click apply anyway...")
+                logger.warning("  ! Job page timed out, attempting to click apply anyway...")
                 pass
         except WebDriverException as e:
             logger.warning(f"  ✗ Failed to load page: {e}")
@@ -364,7 +368,7 @@ def apply_to_jobs(driver, job_links):
         else:
             failed += 1
             applied_list['failed'].append(link)
-            logger.warning(f"  ✗ No direct apply button found.")
+            logger.warning("  ✗ No direct apply button found.")
             continue
 
         # Check for quota expiration
@@ -429,7 +433,7 @@ def main():
         # 1. Login
         login_naukri(driver)
 
-        # 2. Refresh Profile (ensure the filename matches what you uploaded to GitHub)
+        # 2. Refresh Profile
         update_profile(driver, "Resume.pdf")
 
         # 3. Build search URLs and scan for jobs
